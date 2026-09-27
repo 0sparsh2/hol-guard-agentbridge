@@ -48,12 +48,22 @@ AGENTBRIDGE_REVIEW_CASES: tuple[tuple[str, str, str], ...] = (
         "command.agentbridge.scaffold-plugin-force",
     ),
     (
+        "agentbridge scaffold-plugin plugins/agentbridge-demo --backend demo $FORCE_FLAG",
+        "AgentBridge forced plugin scaffold command",
+        "command.agentbridge.scaffold-plugin-force",
+    ),
+    (
         "agentbridge run --manifest examples/refund_agent.yaml --backend mock --tool-registry my_app.tools:registry",
         "AgentBridge run with tool registry command",
         "command.agentbridge.run-tool-registry",
     ),
     (
         "agentbridge run --tool-registry my_app.tools:registry --input 'hello'",
+        "AgentBridge run with tool registry command",
+        "command.agentbridge.run-tool-registry",
+    ),
+    (
+        "agentbridge run --manifest examples/refund_agent.yaml $TOOL_REGISTRY_FLAG",
         "AgentBridge run with tool registry command",
         "command.agentbridge.run-tool-registry",
     ),
@@ -171,3 +181,10 @@ def test_agentbridge_extension_publishes_official_reference() -> None:
     extension = BUILT_IN_COMMAND_EXTENSION_REGISTRY.get("command.agentbridge")
     assert extension is not None
     assert extension.reference_urls == ("https://agentbridge.readthedocs.io/en/latest/",)
+
+
+def test_agentbridge_extension_publishes_contribution_identity() -> None:
+    extension = BUILT_IN_COMMAND_EXTENSION_REGISTRY.get("command.agentbridge")
+    assert extension is not None
+    assert extension.ecosystem_ids == ("agentbridge",)
+    assert extension.executables == ("agentbridge",)

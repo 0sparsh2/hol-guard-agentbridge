@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .command_extension_matchers import executable_matcher, executable_names, safe_flag_variant
 from .command_extension_specs import CommandExtensionSpec
-from .command_rules import AnyMatcher, CommandSafetyRule
+from .command_matcher_contracts import MatcherEvidence
+from .command_model import CanonicalCommand
+from .command_rules import AnyMatcher, CommandSafetyRule, _after_leading_options, _segment_matches_executable
 
 _AGENTBRIDGE_EXECUTABLE_NAMES = executable_names("agentbridge")
 _AGENTBRIDGE_LAUNCHERS: tuple[tuple[str, ...], ...] = (
@@ -57,6 +61,7 @@ _XARGS_LEADING_FLAGS = frozenset(
         "-x",
     }
 )
+_EXPANSION_MARKERS: frozenset[str] = frozenset({"$", "`"})
 
 
 def _leading_options_with_values(launcher: tuple[str, ...]) -> frozenset[str]:
@@ -116,6 +121,56 @@ _AGENTBRIDGE_RUN_TOOL_REGISTRY = AnyMatcher(
     )
 )
 
+
+@dataclass(frozen=True, slots=True)
+class AgentBridgeUnresolvedExpansionMatcher:
+    """Match AgentBridge arguments that may expand to a guarded flag."""
+
+    subcommand: str
+    launchers: tuple[tuple[str, ...], ...] = _AGENTBRIDGE_LAUNCHERS
+    expansion_markers: frozenset[str] = _EXPANSION_MARKERS
+
+    def match(self, command: CanonicalCommand) -> tuple[MatcherEvidence, ...]:
+        evidence: list[MatcherEvidence] = []
+        for index, segment in enumerate(command.segments):
+            if segment.executable is None:
+                continue
+            lowered_arguments = tuple(argument.lower() for argument in segment.arguments)
+            for launcher in self.launchers:
+                if not _segment_matches_executable(segment, frozenset({launcher[0]})):
+                    continue
+                candidate_arguments = lowered_arguments
+                if launcher[0] in ("exec", "xargs"):
+                    candidate_arguments = _after_leading_options(
+                        candidate_arguments,
+                        _leading_options_with_values(launcher),
+                        _leading_flags(launcher),
+                    )
+                prefix = (*launcher[1:], self.subcommand)
+                if candidate_arguments[: len(prefix)] != prefix:
+                    continue
+                remaining_arguments = candidate_arguments[len(prefix) :]
+                if any(
+                    any(marker in argument for marker in self.expansion_markers) for argument in remaining_arguments
+                ):
+                    evidence.append(
+                        MatcherEvidence(
+                            segment_index=index,
+                            executable=segment.executable,
+                            detail="Matched AgentBridge arguments that may expand to a guarded flag.",
+                        )
+                    )
+                break
+        return tuple(evidence)
+
+
+_AGENTBRIDGE_SCAFFOLD_FORCE_WITH_EXPANSIONS = AnyMatcher(
+    matchers=(*_AGENTBRIDGE_SCAFFOLD_FORCE.matchers, AgentBridgeUnresolvedExpansionMatcher("scaffold-plugin")),
+)
+_AGENTBRIDGE_RUN_TOOL_REGISTRY_WITH_EXPANSIONS = AnyMatcher(
+    matchers=(*_AGENTBRIDGE_RUN_TOOL_REGISTRY.matchers, AgentBridgeUnresolvedExpansionMatcher("run")),
+)
+
 AGENTBRIDGE_COMMAND_RULES = (
     CommandSafetyRule(
         rule_id="command.agentbridge.scaffold-plugin-force",
@@ -131,7 +186,7 @@ AGENTBRIDGE_COMMAND_RULES = (
             "Run scaffold-plugin without --force first and review any existing generated paths.",
             "Use a new target directory when exploring plugin scaffolds.",
         ),
-        matcher=_AGENTBRIDGE_SCAFFOLD_FORCE,
+        matcher=_AGENTBRIDGE_SCAFFOLD_FORCE_WITH_EXPANSIONS,
         default_mode="review",
         safe_variants=(
             safe_flag_variant(
@@ -156,7 +211,7 @@ AGENTBRIDGE_COMMAND_RULES = (
             "Run validate or compare before executing with an attached tool registry.",
             "Review the tool registry module and allowed tool functions before running.",
         ),
-        matcher=_AGENTBRIDGE_RUN_TOOL_REGISTRY,
+        matcher=_AGENTBRIDGE_RUN_TOOL_REGISTRY_WITH_EXPANSIONS,
         default_mode="review",
         safe_variants=(
             safe_flag_variant(
@@ -191,5 +246,7 @@ AGENTBRIDGE_COMMAND_EXTENSION_SPECS = (
             "Avoid --force unless the target scaffold files have been reviewed.",
         ),
         reference_urls=("https://agentbridge.readthedocs.io/en/latest/",),
+        ecosystem_ids=("agentbridge",),
+        executables=("agentbridge",),
     ),
 )
