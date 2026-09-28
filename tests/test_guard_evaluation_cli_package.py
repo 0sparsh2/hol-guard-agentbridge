@@ -272,7 +272,11 @@ def test_package_evidence_rejects_nonportable_root_before_writing(tmp_path: Path
 
     payload = _payload(capsys)
     assert status == 2
-    assert payload["status"] != "passed"
+    assert payload["status"] == "failed"
+    assert payload["error"] == {
+        "code": "evidence_package_invalid",
+        "message": "evaluation evidence package is invalid",
+    }
     assert not list(tmp_path.glob("hol-guard-eval-evidence-*.zip"))
 
 
