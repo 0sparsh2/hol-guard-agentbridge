@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .command_extension_matchers import executable_matcher, executable_names, safe_flag_variant
@@ -61,7 +62,18 @@ _XARGS_LEADING_FLAGS = frozenset(
         "-x",
     }
 )
-_EXPANSION_MARKERS: frozenset[str] = frozenset({"$", "`"})
+_UNRESOLVED_EXPANSION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*"),
+    re.compile(r"\$\{[^{}]+\}"),
+    re.compile(r"\$\([^()]+\)"),
+    re.compile(r"`[^`]+`"),
+    re.compile(r"%[A-Za-z_][A-Za-z0-9_]*%"),
+    re.compile(r"![A-Za-z_][A-Za-z0-9_]*!"),
+)
+
+
+def _is_unresolved_expansion(argument: str) -> bool:
+    return any(pattern.fullmatch(argument) for pattern in _UNRESOLVED_EXPANSION_PATTERNS)
 
 
 def _leading_options_with_values(launcher: tuple[str, ...]) -> frozenset[str]:
@@ -128,7 +140,6 @@ class AgentBridgeUnresolvedExpansionMatcher:
 
     subcommand: str
     launchers: tuple[tuple[str, ...], ...] = _AGENTBRIDGE_LAUNCHERS
-    expansion_markers: frozenset[str] = _EXPANSION_MARKERS
 
     def match(self, command: CanonicalCommand) -> tuple[MatcherEvidence, ...]:
         evidence: list[MatcherEvidence] = []
@@ -150,9 +161,15 @@ class AgentBridgeUnresolvedExpansionMatcher:
                 if candidate_arguments[: len(prefix)] != prefix:
                     continue
                 remaining_arguments = candidate_arguments[len(prefix) :]
-                if any(
-                    any(marker in argument for marker in self.expansion_markers) for argument in remaining_arguments
-                ):
+                separator_index = (
+                    remaining_arguments.index("--") if "--" in remaining_arguments else len(remaining_arguments)
+                )
+                option_arguments = remaining_arguments[:separator_index]
+                # Help exits before side effects, and `--` turns later tokens
+                # into positional arguments rather than option candidates.
+                if "--help" in option_arguments:
+                    break
+                if any(_is_unresolved_expansion(argument) for argument in option_arguments):
                     evidence.append(
                         MatcherEvidence(
                             segment_index=index,

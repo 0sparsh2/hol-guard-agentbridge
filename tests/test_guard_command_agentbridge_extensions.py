@@ -169,6 +169,10 @@ AGENTBRIDGE_SAFE_COMMANDS: tuple[str, ...] = (
     "agentbridge run --help",
     "agentbridge run --manifest examples/refund_agent.yaml --backend mock",
     "agentbridge scaffold-plugin plugins/agentbridge-demo --backend demo",
+    "agentbridge scaffold-plugin plugins/$OUTPUT_DIR --backend demo",
+    "agentbridge scaffold-plugin --help $FORCE_FLAG",
+    "agentbridge run --help $TOOL_REGISTRY_FLAG",
+    "agentbridge scaffold-plugin -- $FORCE_FLAG",
     "xargs --arg-file agentbridge scaffold-plugin plugins/agentbridge-demo --backend demo --force",
 )
 
