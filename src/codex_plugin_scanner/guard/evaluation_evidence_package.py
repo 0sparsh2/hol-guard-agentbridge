@@ -27,6 +27,7 @@ from .evaluation_contracts import (
     validate_evaluation_profile,
     validate_evaluation_result,
 )
+from .evaluation_json import reject_duplicate_keys
 from .evaluation_preflight import _safe_temp_parent
 
 EVALUATION_EVIDENCE_PACKAGE_SCHEMA_VERSION = "guard.evaluation-evidence-package.v1"
@@ -151,9 +152,9 @@ def verify_evaluation_evidence_package(data: bytes) -> dict[str, object]:
             profile_bytes = archive.read(_PROFILE_NAME)
             result_bytes = archive.read(_RESULT_NAME)
             manifest_bytes = archive.read(_MANIFEST_NAME)
-        profile = json.loads(profile_bytes)
-        result = json.loads(result_bytes)
-        manifest = json.loads(manifest_bytes)
+        profile = json.loads(profile_bytes, object_pairs_hook=reject_duplicate_keys)
+        result = json.loads(result_bytes, object_pairs_hook=reject_duplicate_keys)
+        manifest = json.loads(manifest_bytes, object_pairs_hook=reject_duplicate_keys)
         if not isinstance(profile, Mapping) or not isinstance(result, Mapping):
             raise EvaluationContractError("evaluation evidence records must be objects")
         profile_payload, result_payload = _record_payloads(profile, result, portable=True)

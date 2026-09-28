@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import io
 import json
 import os
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from codex_plugin_scanner.guard.evaluation_cli import main
+from codex_plugin_scanner.guard.evaluation_contracts import EvaluationContractError
 from codex_plugin_scanner.guard.evaluation_evidence_package import (
     EvaluationEvidencePackageError,
     build_evaluation_evidence_package,
+    verify_evaluation_evidence_package,
 )
 
 from .evaluation_cli_fixtures import _payload, _result, _write_profile
@@ -29,6 +33,23 @@ def test_verify_evidence_reports_canonical_manifest(tmp_path: Path, capsys) -> N
     assert payload["manifest"]["proofBoundary"] == "caller_supplied_unverified"  # type: ignore[index]
     assert payload["manifest"]["profileId"] == profile["profileId"]  # type: ignore[index]
     assert profile_path.is_file()
+
+
+@pytest.mark.parametrize("entry_name", ["profile.json", "result.json", "manifest.json"])
+def test_verify_evidence_rejects_duplicate_json_keys_early(tmp_path: Path, entry_name: str) -> None:
+    _, _, profile = _write_profile(tmp_path)
+    packaged = build_evaluation_evidence_package(profile, _result(profile))
+    with zipfile.ZipFile(io.BytesIO(packaged)) as original:
+        entries = {name: original.read(name) for name in original.namelist()}
+    entries[entry_name] = entries[entry_name].replace(b"{", b'{"duplicate":0,"duplicate":1,', 1)
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_STORED) as archive:
+        for name in ("profile.json", "result.json", "manifest.json"):
+            archive.writestr(name, entries[name])
+
+    with pytest.raises(EvaluationContractError, match="could not be read"):
+        verify_evaluation_evidence_package(output.getvalue())
 
 
 @pytest.mark.skipif(os.name == "nt", reason="evidence package writer requires POSIX directory descriptors")
