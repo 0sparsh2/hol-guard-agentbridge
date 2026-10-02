@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import sqlite3
 import sys
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
@@ -672,14 +674,26 @@ def _headless_approval_resolver(
             return wait_result
 
         def resolve_from_local_queue():
-            queued = queue_blocked_approvals(
-                redaction_level=config.receipt_redaction_level,
-                detection=detection,
-                evaluation=payload,
-                store=store,
-                approval_center_url=approval_center_url,
-                now=_now(),
-            )
+            try:
+                queued = queue_blocked_approvals(
+                    redaction_level=config.receipt_redaction_level,
+                    detection=detection,
+                    evaluation=payload,
+                    store=store,
+                    approval_center_url=approval_center_url,
+                    now=_now(),
+                )
+            except (sqlite3.Error, OSError) as queue_error:
+                # A fatal store/IO error (e.g. a quarantined SQLite store) must
+                # not abort the deny path: still emit an explicit, empty approval
+                # queue so callers always find the key and the action stays
+                # blocked pending manual resolution. Programming errors
+                # (TypeError/ValueError/AttributeError) still propagate.
+                logging.getLogger(__name__).warning(
+                    "Guard approval queue unavailable: %s", queue_error, exc_info=True
+                )
+                queued = []
+                payload["approval_queue_unavailable"] = type(queue_error).__name__
             payload["approval_requests"] = queued
             _attach_primary_approval_link(
                 payload,
