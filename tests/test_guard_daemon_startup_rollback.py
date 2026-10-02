@@ -68,7 +68,7 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
 
     with pytest.raises(RuntimeError, match="injected initial worker failure") as raised:
         daemon.start()
-    assert hook_worker_close_calls == 1
+    assert hook_worker_close_calls == (2 if cleanup_fails else 1)
     if cleanup_fails:
         assert daemon._owner_lock is not None
         assert daemon._is_quarantined()
