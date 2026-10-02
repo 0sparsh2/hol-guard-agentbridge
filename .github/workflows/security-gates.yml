@@ -95,6 +95,7 @@ jobs:
           fs
           --scanners vuln,misconfig,secret
           --severity HIGH,CRITICAL
+          --ignorefile /workdir/.trivyignore
           --skip-dirs /workdir/tests/fixtures
           --skip-dirs /workdir/.github/tools/mcpb-cli/node_modules
           --skip-files /workdir/.clusterfuzzlite/Dockerfile
