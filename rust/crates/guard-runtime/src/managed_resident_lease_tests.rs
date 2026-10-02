@@ -96,9 +96,7 @@ fn expired_one_shot_does_not_retry_a_busy_cleanup_lock() {
     LOCK_RETRY_DEADLINE_NOTIFICATION
         .with(|notification| *notification.borrow_mut() = Some(deadline_sender));
     drop(lease);
-    busy_receiver
-        .try_recv()
-        .expect("cleanup must attempt the lock");
+    busy_receiver.try_recv().expect("cleanup must attempt the lock");
     assert!(
         deadline_receiver.try_recv().is_err(),
         "cleanup must not enter the retry loop"
