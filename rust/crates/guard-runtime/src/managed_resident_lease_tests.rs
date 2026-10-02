@@ -1,7 +1,31 @@
 use super::*;
+use std::cell::RefCell;
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc::Sender;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+thread_local! {
+    static LOCK_BUSY_NOTIFICATION: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
+    static LOCK_RETRY_DEADLINE_NOTIFICATION: RefCell<Option<Sender<(Instant, Instant)>>> =
+        const { RefCell::new(None) };
+}
+
+pub(super) fn notify_lock_busy_for_test() {
+    LOCK_BUSY_NOTIFICATION.with(|notification| {
+        if let Some(sender) = notification.borrow_mut().take() {
+            let _ = sender.send(());
+        }
+    });
+}
+
+pub(super) fn notify_lock_retry_deadline_for_test(deadline: Instant) {
+    LOCK_RETRY_DEADLINE_NOTIFICATION.with(|notification| {
+        if let Some(sender) = notification.borrow_mut().take() {
+            let _ = sender.send((deadline, Instant::now()));
+        }
+    });
+}
 
 fn fixture_file(path: &Path, bytes: &[u8]) {
     #[cfg(windows)]

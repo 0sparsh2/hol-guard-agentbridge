@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+use self::tests::{notify_lock_busy_for_test, notify_lock_retry_deadline_for_test};
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use std::fs::{self, File};
@@ -7,8 +9,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-#[cfg(test)]
-use std::{cell::RefCell, sync::mpsc::Sender};
 
 use crate::resident_state::{
     ensure_private_directory_under, private_root_for_state_base, process_start_marker,
@@ -31,31 +31,6 @@ const LEASE_ACQUIRE_RETRY_BUDGET: Duration = Duration::from_millis(1000);
 const LEASE_CLEANUP_RETRY_BUDGET: Duration = Duration::from_millis(100);
 const LEASE_ACQUIRE_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(1);
 const LEASE_ACQUIRE_RETRY_MAX_DELAY: Duration = Duration::from_millis(16);
-
-#[cfg(test)]
-thread_local! {
-    static LOCK_BUSY_NOTIFICATION: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
-    static LOCK_RETRY_DEADLINE_NOTIFICATION: RefCell<Option<Sender<(Instant, Instant)>>> =
-        const { RefCell::new(None) };
-}
-
-#[cfg(test)]
-fn notify_lock_busy_for_test() {
-    LOCK_BUSY_NOTIFICATION.with(|notification| {
-        if let Some(sender) = notification.borrow_mut().take() {
-            let _ = sender.send(());
-        }
-    });
-}
-
-#[cfg(test)]
-fn notify_lock_retry_deadline_for_test(deadline: Instant) {
-    LOCK_RETRY_DEADLINE_NOTIFICATION.with(|notification| {
-        if let Some(sender) = notification.borrow_mut().take() {
-            let _ = sender.send((deadline, Instant::now()));
-        }
-    });
-}
 
 #[path = "managed_resident_lease_owner.rs"]
 mod owner;
