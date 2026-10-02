@@ -255,37 +255,58 @@ fn absolute_lease_deadline_returns_busy_without_stream_budget_extension() {
         .expect("initial lock open should succeed")
         .expect("test should hold the lease lock");
     crate::resident_state::runtime_digest()
-        .expect("runtime digest should be available before timing the lock wait");
-    let (busy_sender, busy_receiver) = std::sync::mpsc::channel();
+        .expect("runtime digest should be available before the lock wait");
     let (deadline_sender, deadline_receiver) = std::sync::mpsc::channel();
     let (started_sender, started_receiver) = std::sync::mpsc::channel();
     let worker_root = root.clone();
     let worker = thread::spawn(move || {
-        LOCK_BUSY_NOTIFICATION.with(|notification| *notification.borrow_mut() = Some(busy_sender));
         LOCK_RETRY_DEADLINE_NOTIFICATION
             .with(|notification| *notification.borrow_mut() = Some(deadline_sender));
+        let deadline = Instant::now() + Duration::from_millis(30);
         started_sender
-            .send(())
+            .send(deadline)
             .expect("absolute bounded worker should start");
-        let started = Instant::now();
-        let result = acquire_until(&worker_root, started + Duration::from_millis(30));
-        let elapsed = started.elapsed();
-        let error = result.err().unwrap_or_else(|| "acquired".to_owned());
-        (error, elapsed)
+        acquire_until(&worker_root, deadline)
+            .err()
+            .unwrap_or_else(|| "acquired".to_owned())
     });
-    started_receiver
+    let requested_deadline = started_receiver
         .recv_timeout(Duration::from_secs(1))
         .expect("absolute bounded worker should be scheduled");
-    busy_receiver
-        .recv_timeout(Duration::from_secs(1))
-        .expect("absolute retry path should observe the held lock");
-    deadline_receiver
+    let (used_deadline, observed_at) = deadline_receiver
         .recv_timeout(Duration::from_secs(1))
         .expect("absolute retry path should reach its deadline");
     drop(held);
-    let (error, elapsed) = worker.join().expect("absolute bounded worker should exit");
+    let error = worker.join().expect("absolute bounded worker should exit");
     assert_eq!(error, "native_resident_lease_busy");
-    assert!(elapsed < Duration::from_millis(200));
+    // Validate the deadline actually used, not scheduling/ACL latency outside
+    // the retry loop. The real lock remains held until the rejection path fires.
+    assert_eq!(used_deadline, requested_deadline);
+    assert!(observed_at >= requested_deadline);
+    assert_eq!(
+        fs::read_dir(&directory)
+            .expect("lease directory should remain readable")
+            .count(),
+        1,
+        "an expired request must not publish a client lease"
+    );
+    fs::remove_dir_all(root).expect("test directory should be removable");
+}
+
+#[test]
+fn expired_absolute_lock_deadline_rejects_before_opening_a_lock() {
+    let root = test_directory("expired-before-open");
+    let missing = root.join("must-not-be-opened");
+    let deadline = Instant::now() - Duration::from_millis(1);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    LOCK_RETRY_DEADLINE_NOTIFICATION
+        .with(|notification| *notification.borrow_mut() = Some(sender));
+    let result = acquire_directory_lock_until(&missing, &root, deadline);
+    assert!(matches!(result, Err(error) if error == "native_resident_lease_busy"));
+    let (used_deadline, observed_at) = receiver.try_recv().expect("deadline must be observed");
+    assert_eq!(used_deadline, deadline);
+    assert!(observed_at >= deadline);
+    assert!(!missing.exists());
     fs::remove_dir_all(root).expect("test directory should be removable");
 }
 

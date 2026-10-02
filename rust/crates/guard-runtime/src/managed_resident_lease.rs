@@ -35,7 +35,8 @@ const LEASE_ACQUIRE_RETRY_MAX_DELAY: Duration = Duration::from_millis(16);
 #[cfg(test)]
 thread_local! {
     static LOCK_BUSY_NOTIFICATION: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
-    static LOCK_RETRY_DEADLINE_NOTIFICATION: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
+    static LOCK_RETRY_DEADLINE_NOTIFICATION: RefCell<Option<Sender<(Instant, Instant)>>> =
+        const { RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -48,10 +49,10 @@ fn notify_lock_busy_for_test() {
 }
 
 #[cfg(test)]
-fn notify_lock_retry_deadline_for_test() {
+fn notify_lock_retry_deadline_for_test(deadline: Instant) {
     LOCK_RETRY_DEADLINE_NOTIFICATION.with(|notification| {
         if let Some(sender) = notification.borrow_mut().take() {
-            let _ = sender.send(());
+            let _ = sender.send((deadline, Instant::now()));
         }
     });
 }
@@ -115,7 +116,7 @@ fn acquire_directory_lock_until(
     loop {
         if Instant::now() >= deadline {
             #[cfg(test)]
-            notify_lock_retry_deadline_for_test();
+            notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
         if let Some(lock) = acquire_directory_lock(directory, private_root)? {
@@ -124,13 +125,13 @@ fn acquire_directory_lock_until(
             }
             drop(lock);
             #[cfg(test)]
-            notify_lock_retry_deadline_for_test();
+            notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             #[cfg(test)]
-            notify_lock_retry_deadline_for_test();
+            notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
         thread::sleep(delay.min(remaining));
