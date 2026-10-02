@@ -112,15 +112,25 @@ fn acquire_directory_lock_until(
     private_root: &Path,
     deadline: Instant,
 ) -> Result<LeaseDirectoryLock, String> {
+    acquire_directory_lock_with_clock(directory, private_root, deadline, Instant::now, thread::sleep)
+}
+
+fn acquire_directory_lock_with_clock(
+    directory: &Path,
+    private_root: &Path,
+    deadline: Instant,
+    now: impl Fn() -> Instant,
+    mut sleep: impl FnMut(Duration),
+) -> Result<LeaseDirectoryLock, String> {
     let mut delay = LEASE_ACQUIRE_RETRY_INITIAL_DELAY;
     loop {
-        if Instant::now() >= deadline {
+        if now() >= deadline {
             #[cfg(test)]
             notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
         if let Some(lock) = acquire_directory_lock(directory, private_root)? {
-            if Instant::now() < deadline {
+            if now() < deadline {
                 return Ok(lock);
             }
             drop(lock);
@@ -128,13 +138,13 @@ fn acquire_directory_lock_until(
             notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.saturating_duration_since(now());
         if remaining.is_zero() {
             #[cfg(test)]
             notify_lock_retry_deadline_for_test(deadline);
             return Err("native_resident_lease_busy".to_owned());
         }
-        thread::sleep(delay.min(remaining));
+        sleep(delay.min(remaining));
         delay = (delay * 2).min(LEASE_ACQUIRE_RETRY_MAX_DELAY);
     }
 }

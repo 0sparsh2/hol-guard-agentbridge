@@ -249,6 +249,53 @@ fn absolute_lease_deadline_can_wait_beyond_stream_retry_budget() {
 
 #[test]
 fn absolute_lease_deadline_returns_busy_without_stream_budget_extension() {
+    use std::cell::Cell;
+
+    let root = test_directory("absolute-contention");
+    let directory = lease_directory(&root).expect("lease directory should be available");
+    let held = acquire_directory_lock(&directory, &root)
+        .expect("initial lock open should succeed")
+        .expect("test should hold the lease lock");
+    let started = Instant::now();
+    let clock = Cell::new(started);
+    let deadline = started + Duration::from_millis(30);
+    let (busy_sender, busy_receiver) = std::sync::mpsc::channel();
+    let (deadline_sender, deadline_receiver) = std::sync::mpsc::channel();
+    LOCK_BUSY_NOTIFICATION.with(|notification| *notification.borrow_mut() = Some(busy_sender));
+    LOCK_RETRY_DEADLINE_NOTIFICATION
+        .with(|notification| *notification.borrow_mut() = Some(deadline_sender));
+    let mut sleeps = Vec::new();
+    // Exercise real lock contention with a controlled clock. Runner scheduling
+    // and ACL setup cannot consume the budget before the first lock attempt.
+    let result = acquire_directory_lock_with_clock(
+        &directory,
+        &root,
+        deadline,
+        || clock.get(),
+        |duration| {
+            assert!(duration <= deadline.saturating_duration_since(clock.get()));
+            sleeps.push(duration);
+            clock.set(clock.get() + duration);
+        },
+    );
+    assert!(matches!(result, Err(error) if error == "native_resident_lease_busy"));
+    busy_receiver
+        .try_recv()
+        .expect("the real lock must have been contested");
+    let (used_deadline, _) = deadline_receiver.try_recv().expect("deadline must be observed");
+    assert_eq!(used_deadline, deadline);
+    assert_eq!(clock.get(), deadline);
+    assert_eq!(
+        sleeps.iter().copied().sum::<Duration>(),
+        Duration::from_millis(30)
+    );
+    assert_eq!(sleeps.last(), Some(&Duration::from_millis(15)));
+    drop(held);
+    fs::remove_dir_all(root).expect("test directory should be removable");
+}
+
+#[test]
+fn absolute_lease_deadline_survives_private_file_setup() {
     let root = test_directory("absolute-bounded");
     let directory = lease_directory(&root).expect("lease directory should be available");
     let held = acquire_directory_lock(&directory, &root)
@@ -299,8 +346,7 @@ fn expired_absolute_lock_deadline_rejects_before_opening_a_lock() {
     let missing = root.join("must-not-be-opened");
     let deadline = Instant::now() - Duration::from_millis(1);
     let (sender, receiver) = std::sync::mpsc::channel();
-    LOCK_RETRY_DEADLINE_NOTIFICATION
-        .with(|notification| *notification.borrow_mut() = Some(sender));
+    LOCK_RETRY_DEADLINE_NOTIFICATION.with(|notification| *notification.borrow_mut() = Some(sender));
     let result = acquire_directory_lock_until(&missing, &root, deadline);
     assert!(matches!(result, Err(error) if error == "native_resident_lease_busy"));
     let (used_deadline, observed_at) = receiver.try_recv().expect("deadline must be observed");
