@@ -42,9 +42,11 @@ def test_daemon_start_uses_full_initial_hook_worker_pool(
         daemon.stop()
 
 
+@pytest.mark.parametrize("cleanup_fails", [False, True])
 def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    cleanup_fails: bool,
 ) -> None:
     store = GuardStore(tmp_path / "guard-home")
     daemon = GuardDaemonServer(store, host="127.0.0.1", port=0, idle_timeout_seconds=0)
@@ -57,15 +59,28 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
         real_hook_worker_close()
 
     monkeypatch.setattr(daemon._server.hook_worker, "close", record_hook_worker_close)
+    real_server_close = daemon._server.server_close
+    server_close_calls = 0
+
+    def close_with_optional_failure() -> None:
+        nonlocal server_close_calls
+        server_close_calls += 1
+        real_server_close()
+        if cleanup_fails and server_close_calls == 1:
+            raise OSError("injected cleanup failure")
+
+    monkeypatch.setattr(daemon._server, "server_close", close_with_optional_failure)
     monkeypatch.setattr(
         daemon._server.hook_process_runner,
         "require_initial_capacity",
         lambda: (_ for _ in ()).throw(RuntimeError("injected initial worker failure")),
     )
 
-    with pytest.raises(RuntimeError, match="injected initial worker failure"):
+    with pytest.raises(RuntimeError, match="injected initial worker failure") as raised:
         daemon.start()
     assert hook_worker_close_calls == 1
+    if cleanup_fails and hasattr(raised.value, "add_note"):
+        assert "Guard HTTP resource cleanup also failed during startup rollback." in raised.value.__notes__
 
     def reject_shutdown() -> None:
         raise AssertionError("shutdown must not wait on an unstarted serve loop")

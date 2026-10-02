@@ -6,7 +6,6 @@ import logging
 import sqlite3
 import threading
 import time
-from contextlib import suppress
 from typing import TYPE_CHECKING
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,8 +138,12 @@ def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = F
             # _begin_service can fail before the serve loop exists. Close the
             # HTTP server-owned publisher and writers before finishing the
             # remaining service cleanup, while preserving the startup error.
-            with suppress(Exception):
+            try:
                 server._server.server_close()
+            except Exception:
+                add_note = getattr(error, "add_note", None)
+                if callable(add_note):
+                    add_note("Guard HTTP resource cleanup also failed during startup rollback.")
         if not server._finish_service():
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
