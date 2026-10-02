@@ -138,13 +138,6 @@ def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = F
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
                 add_note("Guard retained daemon ownership because partial-start containment was unconfirmed.")
-        elif serve_thread is None:
-            try:
-                server._server.server_close()
-            except Exception:
-                add_note = getattr(error, "add_note", None)
-                if callable(add_note):
-                    add_note("Guard HTTP resource cleanup also failed during startup rollback.")
         raise
 
 
