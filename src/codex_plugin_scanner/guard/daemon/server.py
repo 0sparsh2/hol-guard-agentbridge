@@ -8831,6 +8831,16 @@ class GuardDaemonServer:
                 contained = runtime_hook_evidence_writer.stop(timeout_seconds=1.0) is not False and contained
             except Exception:
                 contained = False
+        hook_worker = getattr(self._server, "hook_worker", None)
+        if hook_worker is not None:
+            try:
+                close_contained = getattr(hook_worker, "close_contained", None)
+                if callable(close_contained):
+                    contained = close_contained() is not False and contained
+                else:
+                    contained = hook_worker.close() is not False and contained
+            except Exception:
+                contained = False
         hook_process_runner = getattr(self._server, "hook_process_runner", None)
         if hook_process_runner is not None:
             try:

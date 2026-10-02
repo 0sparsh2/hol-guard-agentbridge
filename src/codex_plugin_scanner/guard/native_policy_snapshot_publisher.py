@@ -156,9 +156,12 @@ class NativePolicySnapshotPublisher(NativePolicySnapshotPublisherInputs):
         self.request_publish()
 
     def close(self, *, timeout_seconds: float = 1.0) -> None:
+        _ = self.close_contained(timeout_seconds=timeout_seconds)
+
+    def close_contained(self, *, timeout_seconds: float = 1.0) -> bool:
+        """Retain publication ownership until the publisher thread exits."""
+
         with self._condition:
-            if self._closed:
-                return
             self._closed = True
             self._acked = False
             self._condition.notify_all()
@@ -166,6 +169,8 @@ class NativePolicySnapshotPublisher(NativePolicySnapshotPublisherInputs):
         thread = self._thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=max(0.0, timeout_seconds))
+        if thread is not None and thread.is_alive():
+            return False
         api = _snapshot_api()
         with api._PUBLISHER_LOCK:
             publishers = api._PUBLISHERS.get(api._publisher_key(self.guard_home))
@@ -173,6 +178,7 @@ class NativePolicySnapshotPublisher(NativePolicySnapshotPublisherInputs):
                 publishers.discard(self)
                 if not publishers:
                     api._PUBLISHERS.pop(api._publisher_key(self.guard_home), None)
+        return True
 
     def request_publish(self) -> None:
         with self._condition:

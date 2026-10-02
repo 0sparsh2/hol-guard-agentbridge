@@ -51,25 +51,15 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
     store = GuardStore(tmp_path / "guard-home")
     daemon = GuardDaemonServer(store, host="127.0.0.1", port=0, idle_timeout_seconds=0)
     hook_worker_close_calls = 0
-    real_hook_worker_close = daemon._server.hook_worker.close
+    real_hook_worker_close = daemon._server.hook_worker.close_contained
 
-    def record_hook_worker_close() -> None:
+    def record_hook_worker_close() -> bool:
         nonlocal hook_worker_close_calls
         hook_worker_close_calls += 1
-        real_hook_worker_close()
+        contained = real_hook_worker_close()
+        return False if cleanup_fails and hook_worker_close_calls == 1 else contained
 
-    monkeypatch.setattr(daemon._server.hook_worker, "close", record_hook_worker_close)
-    real_server_close = daemon._server.server_close
-    server_close_calls = 0
-
-    def close_with_optional_failure() -> None:
-        nonlocal server_close_calls
-        server_close_calls += 1
-        real_server_close()
-        if cleanup_fails and server_close_calls == 1:
-            raise OSError("injected cleanup failure")
-
-    monkeypatch.setattr(daemon._server, "server_close", close_with_optional_failure)
+    monkeypatch.setattr(daemon._server.hook_worker, "close_contained", record_hook_worker_close)
     monkeypatch.setattr(
         daemon._server.hook_process_runner,
         "require_initial_capacity",
@@ -79,8 +69,16 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
     with pytest.raises(RuntimeError, match="injected initial worker failure") as raised:
         daemon.start()
     assert hook_worker_close_calls == 1
+    if cleanup_fails:
+        assert daemon._owner_lock is not None
+        assert daemon._is_quarantined()
+        with pytest.raises(RuntimeError, match="already active"):
+            _ = daemon_manager.acquire_guard_daemon_owner_lock(store.guard_home)
     if cleanup_fails and hasattr(raised.value, "add_note"):
-        assert "Guard HTTP resource cleanup also failed during startup rollback." in raised.value.__notes__
+        assert (
+            "Guard retained daemon ownership because partial-start containment was unconfirmed."
+            in raised.value.__notes__
+        )
 
     def reject_shutdown() -> None:
         raise AssertionError("shutdown must not wait on an unstarted serve loop")
