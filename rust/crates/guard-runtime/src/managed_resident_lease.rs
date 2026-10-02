@@ -112,7 +112,13 @@ fn acquire_directory_lock_until(
     private_root: &Path,
     deadline: Instant,
 ) -> Result<LeaseDirectoryLock, String> {
-    acquire_directory_lock_with_clock(directory, private_root, deadline, Instant::now, thread::sleep)
+    acquire_directory_lock_with_clock(
+        directory,
+        private_root,
+        deadline,
+        Instant::now,
+        thread::sleep,
+    )
 }
 
 fn acquire_directory_lock_with_clock(
