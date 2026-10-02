@@ -282,7 +282,9 @@ fn absolute_lease_deadline_returns_busy_without_stream_budget_extension() {
     busy_receiver
         .try_recv()
         .expect("the real lock must have been contested");
-    let (used_deadline, _) = deadline_receiver.try_recv().expect("deadline must be observed");
+    let (used_deadline, _) = deadline_receiver
+        .try_recv()
+        .expect("deadline must be observed");
     assert_eq!(used_deadline, deadline);
     assert_eq!(clock.get(), deadline);
     assert_eq!(
