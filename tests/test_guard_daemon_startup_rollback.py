@@ -48,6 +48,15 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
 ) -> None:
     store = GuardStore(tmp_path / "guard-home")
     daemon = GuardDaemonServer(store, host="127.0.0.1", port=0, idle_timeout_seconds=0)
+    hook_worker_close_calls = 0
+    real_hook_worker_close = daemon._server.hook_worker.close
+
+    def record_hook_worker_close() -> None:
+        nonlocal hook_worker_close_calls
+        hook_worker_close_calls += 1
+        real_hook_worker_close()
+
+    monkeypatch.setattr(daemon._server.hook_worker, "close", record_hook_worker_close)
     monkeypatch.setattr(
         daemon._server.hook_process_runner,
         "require_initial_capacity",
@@ -56,6 +65,7 @@ def test_stop_after_initial_worker_failure_does_not_shutdown_unstarted_serve_loo
 
     with pytest.raises(RuntimeError, match="injected initial worker failure"):
         daemon.start()
+    assert hook_worker_close_calls == 1
 
     def reject_shutdown() -> None:
         raise AssertionError("shutdown must not wait on an unstarted serve loop")

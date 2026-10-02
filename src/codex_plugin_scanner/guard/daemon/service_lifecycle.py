@@ -6,6 +6,7 @@ import logging
 import sqlite3
 import threading
 import time
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,6 +135,12 @@ def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = F
             if callable(add_note):
                 add_note("Guard retained daemon ownership because the serve thread did not exit.")
             raise
+        if serve_thread is None:
+            # _begin_service can fail before the serve loop exists. Close the
+            # HTTP server-owned publisher and writers before finishing the
+            # remaining service cleanup, while preserving the startup error.
+            with suppress(Exception):
+                server._server.server_close()
         if not server._finish_service():
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
