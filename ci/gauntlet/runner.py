@@ -23,6 +23,7 @@ from ci.native_runtime import probe_installed_native_extensions as native_probe
 from ci.native_runtime import probe_installed_pi_output as probe
 
 from .catalog import WATCH_COMMAND, WATCH_PROMPT, Scenario, catalog_digest, load_catalog
+from .cleanup import cleanup_case_resources
 from .evidence import TRANSCRIPT_LIMIT, assess_case, public_events, read_events, sha256_bytes
 from .fixtures import create_fixture, digest_file, filesystem_checks, scenario_fixture_name
 from .input_evidence import fixture_path_aliases, public_observations, redact_value
@@ -479,12 +480,7 @@ def run_case(
     finally:
         case["filesystem"] = filesystem_checks(fixture, scenario.oracle, scenario.id)
         if daemon is not None:
-            try:
-                probe._cleanup_installed_daemon(daemon)
-                probe._cleanup_native(identity, fixture.root / "guard-home")
-                case["cleanup_ok"] = True
-            except Exception as exc:
-                case["cleanup_error"] = type(exc).__name__
+            case.update(cleanup_case_resources(daemon, identity, fixture.root / "guard-home", private))
     case["elapsed_seconds"] = round(time.monotonic() - started, 3)
     case["hook_latency"] = summarize_hook_latency(case["guard_observations"])
     case["assessment"] = assess_case(scenario, case)
