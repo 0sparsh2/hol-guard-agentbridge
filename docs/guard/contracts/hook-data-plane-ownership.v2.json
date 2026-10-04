@@ -539,9 +539,10 @@
     "rust/crates/guard-hook-core/**",
     "rust/crates/guard-secure-fs/**",
     "rust/crates/guard-seatbelt/**",
-    "rust/crates/guard-runtime-windows-process/**"
+    "rust/crates/guard-runtime-windows-process/**",
+    "rust/crates/guard-google-identity/**"
    ],
-   "current": "PostToolUse output extraction, source validation, secure reads, identity, hashing, equivalence, scanning, and OS-bound containment primitives",
+   "current": "PostToolUse output extraction, source validation, secure reads, identity, hashing, equivalence, scanning, OS-bound containment primitives, and bounded fixed-endpoint HTTPS Google signing-key retrieval with native identity verification",
    "target": "all decision-critical hook content and source I/O"
   }
  ],
