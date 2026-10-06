@@ -40,6 +40,9 @@ ring = "0.17.14"
 rsa = "0.9.8"
 base64ct = "1.6.0"
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31.3", features = ["process", "signal"] }
+
 [build-dependencies]
 sha2 = "0.10.9"
 
